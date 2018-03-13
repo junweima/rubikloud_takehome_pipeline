@@ -3,6 +3,8 @@ import luigi
 import pandas as pd
 import sklearn as sk
 import os
+import re
+import numpy as np
 import pdb
 
 class CleanDataTask(luigi.Task):
@@ -21,9 +23,12 @@ class CleanDataTask(luigi.Task):
 		return luigi.LocalTarget(self.output_file)
 
 	def run(self):
+
 		df = pd.read_csv(self.tweet_file, encoding='iso8859_5')
-		df_clean = df[['airline_sentiment', 'tweet_coord']][~df['tweet_coord'].isin(['[0.0, 0.0]'])]
-		df_clean = df_clean[df['tweet_coord'].notnull()]
+		df_clean = df[df['tweet_coord'].notnull()]
+		df_clean = df_clean[['airline_sentiment', 'tweet_coord']][~df_clean['tweet_coord'].isin(['[0.0, 0.0]'])]
+		df_clean['latitude'] = df_clean.apply(lambda row: re.findall(r'[0-9\.]+', row['tweet_coord'])[0], axis=1)
+		df_clean['longitude'] = df_clean.apply(lambda row: re.findall(r'[0-9\.]+', row['tweet_coord'])[1], axis=1)
 
 		if not os.path.isfile(self.output_file):
 			f = open(self.output_file, 'w')
@@ -50,23 +55,32 @@ class TrainingDataTask(luigi.Task):
 
 	def run(self):
 		
+		one_hot = lambda x, k: np.array(x == np.arange(k)[None, :], dtype=int)
+
 		df = pd.read_csv(self.input().open().name)
 		df.loc[df.airline_sentiment == 'negative', 'airline_sentiment'] = 0
 		df.loc[df.airline_sentiment == 'neutral', 'airline_sentiment'] = 1
 		df.loc[df.airline_sentiment == 'positive', 'airline_sentiment'] = 2
 
 		df_cities = pd.read_csv(self.cities_file)
-		df['euc_dist'] = df.apply(lambda row: row['A'] + row['B'], axis=1)
+		nearest_cities = []
+		for i in range(df.shape[0]):
+			nearest_city = df_cities.index[((df_cities['latitude']-df['latitude'][i]).pow(2) + (df_cities['longitude']-df['longitude'][i]).pow(2)).argsort()[0]]
+			nearest_cities.append(one_hot(nearest_city, df_cities.shape[0]).tolist())
+			# nearest_cities.append(nearest_city)
 		
-		pdb.set_trace()
+		df_nearest_cities = pd.DataFrame({'nearest_city': nearest_cities})
 
-		df = df[['airline_sentiment', 'tweet_coord']]
+		df = pd.concat([df['airline_sentiment'], df_nearest_cities['nearest_city']], axis=1)
 		df.columns = ['y', 'x']
 
 		if not os.path.isfile(self.output_file):
 			f = open(self.output_file, 'w')
 			f.close()
 		df.to_csv(self.output_file, sep=',')
+
+		# df_test = pd.read_csv(self.output_file)
+		# pdb.set_trace()
 
 
 class TrainModelTask(luigi.Task):
