@@ -2,6 +2,7 @@
 import luigi
 import pandas as pd
 import sklearn as sk
+import os
 import pdb
 
 class CleanDataTask(luigi.Task):
@@ -10,7 +11,6 @@ class CleanDataTask(luigi.Task):
 		Output file should contain just the rows that have geo-coordinates and
 		non-(0.0, 0.0) files.
 	"""
-	print('task1')
 	tweet_file = luigi.Parameter()
 	output_file = luigi.Parameter(default='clean_data.csv')
 
@@ -22,10 +22,13 @@ class CleanDataTask(luigi.Task):
 
 	def run(self):
 		df = pd.read_csv(self.tweet_file, encoding='iso8859_5')
-		with self.output().open('w') as f:
-			df_clean = df[['airline_sentiment', 'tweet_coord']][~df['tweet_coord'].isin(['[0.0, 0.0]'])]
-			df_clean = df_clean[df['tweet_coord'].notnull()]
-			f.write(df_clean.to_string())
+		df_clean = df[['airline_sentiment', 'tweet_coord']][~df['tweet_coord'].isin(['[0.0, 0.0]'])]
+		df_clean = df_clean[df['tweet_coord'].notnull()]
+
+		if not os.path.isfile(self.output_file):
+			f = open(self.output_file, 'w')
+			f.close()
+		df_clean.to_csv(self.output_file, sep=',')
 			
 
 class TrainingDataTask(luigi.Task):
@@ -35,7 +38,6 @@ class TrainingDataTask(luigi.Task):
 		- y = airline_sentiment (coded as 0=negative, 1=neutral, 2=positive)
 		- X = a one-hot coded column for each city in "cities.csv"
 	"""
-	print('task2')
 	tweet_file = luigi.Parameter()
 	cities_file = luigi.Parameter(default='cities.csv')
 	output_file = luigi.Parameter(default='features.csv')
@@ -47,8 +49,16 @@ class TrainingDataTask(luigi.Task):
 		return luigi.LocalTarget(self.output_file)
 
 	def run(self):
+		# pdb.set_trace()
+		df_clean = pd.read_csv(self.input().open().name)
+		pdb.set_trace()
+		df_clean['airline_sentiment'][df_clean['airline_sentiment'].isin(['negative'])] = 0
+		df_clean['airline_sentiment'][df_clean['airline_sentiment'].isin(['neutral'])] = 1
+		df_clean['airline_sentiment'][df_clean['airline_sentiment'].isin(['positive'])] = 2
+		df_clean.columns = ['y', 'x']
+
 		with self.output().open('w') as f:
-			f.write('something for testing part 2')
+			f.write(df_clean.to_string())
 		
 
 
@@ -58,7 +68,6 @@ class TrainModelTask(luigi.Task):
 
 		Output file should be the pickle'd model.
 	"""
-	print('task3')
 	tweet_file = luigi.Parameter()
 	output_file = luigi.Parameter(default='model.pkl')
 
@@ -82,7 +91,6 @@ class ScoreTask(luigi.Task):
 		- neutral probability
 		- positive probability
 	"""
-	print('task4')
 	tweet_file = luigi.Parameter()
 	output_file = luigi.Parameter(default='scores.csv')
 
