@@ -1,0 +1,1 @@
+rm clean_data.csv features.csv model.pkl scores.csv
