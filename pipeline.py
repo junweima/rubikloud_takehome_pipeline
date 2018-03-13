@@ -49,17 +49,24 @@ class TrainingDataTask(luigi.Task):
 		return luigi.LocalTarget(self.output_file)
 
 	def run(self):
-		# pdb.set_trace()
-		df_clean = pd.read_csv(self.input().open().name)
-		pdb.set_trace()
-		df_clean['airline_sentiment'][df_clean['airline_sentiment'].isin(['negative'])] = 0
-		df_clean['airline_sentiment'][df_clean['airline_sentiment'].isin(['neutral'])] = 1
-		df_clean['airline_sentiment'][df_clean['airline_sentiment'].isin(['positive'])] = 2
-		df_clean.columns = ['y', 'x']
-
-		with self.output().open('w') as f:
-			f.write(df_clean.to_string())
 		
+		df = pd.read_csv(self.input().open().name)
+		df.loc[df.airline_sentiment == 'negative', 'airline_sentiment'] = 0
+		df.loc[df.airline_sentiment == 'neutral', 'airline_sentiment'] = 1
+		df.loc[df.airline_sentiment == 'positive', 'airline_sentiment'] = 2
+
+		df_cities = pd.read_csv(self.cities_file)
+		df['euc_dist'] = df.apply(lambda row: row['A'] + row['B'], axis=1)
+		
+		pdb.set_trace()
+
+		df = df[['airline_sentiment', 'tweet_coord']]
+		df.columns = ['y', 'x']
+
+		if not os.path.isfile(self.output_file):
+			f = open(self.output_file, 'w')
+			f.close()
+		df.to_csv(self.output_file, sep=',')
 
 
 class TrainModelTask(luigi.Task):
