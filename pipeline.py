@@ -4,8 +4,19 @@ import pandas as pd
 import sklearn as sk
 import os
 import re
+import pickle
+from sklearn.externals import joblib
 import numpy as np
 import pdb
+
+from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.metrics import confusion_matrix
+from sklearn.svm import LinearSVC
+
+from sklearn import linear_model
 
 class CleanDataTask(luigi.Task):
 	""" Cleans the input CSV file by removing any rows without valid geo-coordinates.
@@ -55,7 +66,7 @@ class TrainingDataTask(luigi.Task):
 
 	def run(self):
 		
-		one_hot = lambda x, k: np.array(x == np.arange(k)[None, :], dtype=int)
+		# one_hot = lambda x, k: np.array(x == np.arange(k)[None, :], dtype=int)
 
 		df = pd.read_csv(self.input().open().name)
 		df.loc[df.airline_sentiment == 'negative', 'airline_sentiment'] = 0
@@ -66,8 +77,8 @@ class TrainingDataTask(luigi.Task):
 		nearest_cities = []
 		for i in range(df.shape[0]):
 			nearest_city = df_cities.index[((df_cities['latitude']-df['latitude'][i]).pow(2) + (df_cities['longitude']-df['longitude'][i]).pow(2)).argsort()[0]]
-			nearest_cities.append(one_hot(nearest_city, df_cities.shape[0]).tolist())
-			# nearest_cities.append(nearest_city)
+			# nearest_cities.append(one_hot(nearest_city, df_cities.shape[0]).tolist())
+			nearest_cities.append(nearest_city)
 		
 		df_nearest_cities = pd.DataFrame({'nearest_city': nearest_cities})
 
@@ -99,8 +110,40 @@ class TrainModelTask(luigi.Task):
 		return luigi.LocalTarget(self.output_file)
 
 	def run(self):
-		with self.output().open('w') as f:
-			f.write('something for testing part 3')
+
+		accuracy = lambda C: np.sum(np.diag(C))/np.sum(C)
+		recall = lambda C: [np.diag(C)[i]/np.sum(C[i,:]) for i in range(C.shape[0])]
+		precision = lambda C: [np.diag(C)[i]/np.sum(C[:,i]) for i in range(C.shape[0])]
+
+		df = pd.read_csv(self.input().open().name)
+
+		x_train, x_test = df['x'].tolist()[:int(0.8*df.shape[0])], df['x'].tolist()[int(0.8*df.shape[0]):]
+		x_train = [[x] for x in x_train]
+		x_test = [[x] for x in x_test]
+		y_train, y_test = df['y'].tolist()[:int(0.8*df.shape[0])], df['y'].tolist()[int(0.8*df.shape[0]):]
+
+		assert(len(x_train) == len(y_train))
+
+		# rf_clf = RandomForestClassifier(n_estimators=10, max_depth=5)
+		# clf = MLPClassifier(alpha=0.05)
+		# clf = LinearSVC(random_state=111)
+		# clf = KNeighborsClassifier(3)
+		# clf.fit(x_train, y_train)
+		# y_pred = clf.predict(x_test)
+		# i_confusion_matrix = confusion_matrix(y_test, y_pred)
+
+		regr = linear_model.LinearRegression()
+		regr.fit(x_train, y_train)
+		y_pred = regr.predict(x_test)
+
+		# print(i_confusion_matrix)
+		# print(accuracy(i_confusion_matrix))
+		# print(np.average(recall(i_confusion_matrix)))
+		# print(np.average(precision(i_confusion_matrix)))
+
+		# pdb.set_trace()
+		
+		joblib.dump(clf, self.output_file)
 
 
 class ScoreTask(luigi.Task):
@@ -116,14 +159,41 @@ class ScoreTask(luigi.Task):
 	output_file = luigi.Parameter(default='scores.csv')
 
 	def requires(self):
-		return TrainModelTask(self.tweet_file)
+		return [TrainingDataTask(self.tweet_file), TrainModelTask(self.tweet_file)]
 
 	def output(self):
 		return luigi.LocalTarget(self.output_file)
 
 	def run(self):
-		with self.output().open('w') as f:
-			f.write('something for testing part 4')
+
+		accuracy = lambda C: np.sum(np.diag(C))/np.sum(C)
+		recall = lambda C: [np.diag(C)[i]/np.sum(C[i,:]) for i in range(C.shape[0])]
+		precision = lambda C: [np.diag(C)[i]/np.sum(C[:,i]) for i in range(C.shape[0])]
+
+		df = pd.read_csv(self.input()[0].open().name)
+		clf = joblib.load(self.input()[1].open().name)
+
+		x_train, x_test = df['x'].tolist()[:int(0.8*df.shape[0])], df['x'].tolist()[int(0.8*df.shape[0]):]
+		x_train = [[x] for x in x_train]
+		x_test = [[x] for x in x_test]
+		y_train, y_test = df['y'].tolist()[:int(0.8*df.shape[0])], df['y'].tolist()[int(0.8*df.shape[0]):]
+
+		assert(len(x_train) == len(y_train))
+
+		y_pred = clf.predict(x_test)
+
+		i_confusion_matrix = confusion_matrix(y_test, y_pred)
+		print(i_confusion_matrix)
+		print(accuracy(i_confusion_matrix))
+		print(np.average(recall(i_confusion_matrix)))
+		print(np.average(precision(i_confusion_matrix)))
+
+		df_test = pd.DataFrame({'x': x_test, 'y_pred': y_pred})
+
+		if not os.path.isfile(self.output_file):
+			f = open(self.output_file, 'w')
+			f.close()
+		df_test.to_csv(self.output_file, sep=',')
 
 
 if __name__ == "__main__":
